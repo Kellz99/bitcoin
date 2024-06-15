@@ -2,6 +2,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <config/bitcoin-config.h> // IWYU pragma: keep
+
 #include <qt/bitcoingui.h>
 
 #include <qt/bitcoinunits.h>
@@ -673,8 +675,10 @@ void BitcoinGUI::setClientModel(ClientModel *_clientModel, interfaces::BlockAndH
 #ifdef ENABLE_WALLET
 void BitcoinGUI::enableHistoryAction(bool privacy)
 {
-    historyAction->setEnabled(!privacy);
-    if (historyAction->isChecked()) gotoOverviewPage();
+    if (walletFrame->currentWalletModel()) {
+        historyAction->setEnabled(!privacy);
+        if (historyAction->isChecked()) gotoOverviewPage();
+    }
 }
 
 void BitcoinGUI::setWalletController(WalletController* wallet_controller, bool show_loading_minimized)
@@ -983,6 +987,7 @@ void BitcoinGUI::gotoLoadPSBT(bool from_clipboard)
 
 void BitcoinGUI::updateNetworkState()
 {
+    if (!clientModel) return;
     int count = clientModel->getNumConnections();
     QString icon;
     switch(count)

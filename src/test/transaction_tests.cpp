@@ -38,6 +38,9 @@
 
 #include <univalue.h>
 
+using util::SplitString;
+using util::ToString;
+
 typedef std::vector<unsigned char> valtype;
 
 static CFeeRate g_dust{DUST_RELAY_TX_FEE};
@@ -412,7 +415,7 @@ BOOST_AUTO_TEST_CASE(test_Get)
 static void CreateCreditAndSpend(const FillableSigningProvider& keystore, const CScript& outscript, CTransactionRef& output, CMutableTransaction& input, bool success = true)
 {
     CMutableTransaction outputm;
-    outputm.nVersion = 1;
+    outputm.version = 1;
     outputm.vin.resize(1);
     outputm.vin[0].prevout.SetNull();
     outputm.vin[0].scriptSig = CScript();
@@ -428,7 +431,7 @@ static void CreateCreditAndSpend(const FillableSigningProvider& keystore, const 
     assert(output->vout[0] == outputm.vout[0]);
 
     CMutableTransaction inputm;
-    inputm.nVersion = 1;
+    inputm.version = 1;
     inputm.vin.resize(1);
     inputm.vin[0].prevout.hash = output->GetHash();
     inputm.vin[0].prevout.n = 0;
@@ -485,10 +488,9 @@ static void ReplaceRedeemScript(CScript& script, const CScript& redeemScript)
 BOOST_AUTO_TEST_CASE(test_big_witness_transaction)
 {
     CMutableTransaction mtx;
-    mtx.nVersion = 1;
+    mtx.version = 1;
 
-    CKey key;
-    key.MakeNewKey(true); // Need to use compressed keys in segwit or the signing will fail
+    CKey key = GenerateRandomKey(); // Need to use compressed keys in segwit or the signing will fail
     FillableSigningProvider keystore;
     BOOST_CHECK(keystore.AddKeyPubKey(key, key.GetPubKey()));
     CKeyID hash = key.GetPubKey().GetID();
@@ -564,18 +566,16 @@ SignatureData CombineSignatures(const CMutableTransaction& input1, const CMutabl
 BOOST_AUTO_TEST_CASE(test_witness)
 {
     FillableSigningProvider keystore, keystore2;
-    CKey key1, key2, key3, key1L, key2L;
-    CPubKey pubkey1, pubkey2, pubkey3, pubkey1L, pubkey2L;
-    key1.MakeNewKey(true);
-    key2.MakeNewKey(true);
-    key3.MakeNewKey(true);
-    key1L.MakeNewKey(false);
-    key2L.MakeNewKey(false);
-    pubkey1 = key1.GetPubKey();
-    pubkey2 = key2.GetPubKey();
-    pubkey3 = key3.GetPubKey();
-    pubkey1L = key1L.GetPubKey();
-    pubkey2L = key2L.GetPubKey();
+    CKey key1 = GenerateRandomKey();
+    CKey key2 = GenerateRandomKey();
+    CKey key3 = GenerateRandomKey();
+    CKey key1L = GenerateRandomKey(/*compressed=*/false);
+    CKey key2L = GenerateRandomKey(/*compressed=*/false);
+    CPubKey pubkey1 = key1.GetPubKey();
+    CPubKey pubkey2 = key2.GetPubKey();
+    CPubKey pubkey3 = key3.GetPubKey();
+    CPubKey pubkey1L = key1L.GetPubKey();
+    CPubKey pubkey2L = key2L.GetPubKey();
     BOOST_CHECK(keystore.AddKeyPubKey(key1, pubkey1));
     BOOST_CHECK(keystore.AddKeyPubKey(key2, pubkey2));
     BOOST_CHECK(keystore.AddKeyPubKey(key1L, pubkey1L));
@@ -756,8 +756,7 @@ BOOST_AUTO_TEST_CASE(test_IsStandard)
     t.vin[0].scriptSig << std::vector<unsigned char>(65, 0);
     t.vout.resize(1);
     t.vout[0].nValue = 90*CENT;
-    CKey key;
-    key.MakeNewKey(true);
+    CKey key = GenerateRandomKey();
     t.vout[0].scriptPubKey = GetScriptForDestination(PKHash(key.GetPubKey()));
 
     constexpr auto CheckIsStandard = [](const auto& t) {
@@ -783,21 +782,21 @@ BOOST_AUTO_TEST_CASE(test_IsStandard)
     t.vout[0].nValue = nDustThreshold;
     CheckIsStandard(t);
 
-    // Disallowed nVersion
-    t.nVersion = -1;
+    // Disallowed version
+    t.version = std::numeric_limits<uint32_t>::max();
     CheckIsNotStandard(t, "version");
 
-    t.nVersion = 0;
+    t.version = 0;
     CheckIsNotStandard(t, "version");
 
-    t.nVersion = 3;
+    t.version = TX_MAX_STANDARD_VERSION + 1;
     CheckIsNotStandard(t, "version");
 
-    // Allowed nVersion
-    t.nVersion = 1;
+    // Allowed version
+    t.version = 1;
     CheckIsStandard(t);
 
-    t.nVersion = 2;
+    t.version = 2;
     CheckIsStandard(t);
 
     // Check dust with odd relay fee to verify rounding:
@@ -908,15 +907,15 @@ BOOST_AUTO_TEST_CASE(test_IsStandard)
     t.vin.clear();
     t.vin.resize(2438); // size per input (empty scriptSig): 41 bytes
     t.vout[0].scriptPubKey = CScript() << OP_RETURN << std::vector<unsigned char>(19, 0); // output size: 30 bytes
-    // tx header:                12 bytes =>     48 vbytes
-    // 2438 inputs: 2438*41 = 99958 bytes => 399832 vbytes
-    //    1 output:              30 bytes =>    120 vbytes
-    //                      ===============================
-    //                                total: 400000 vbytes
+    // tx header:                12 bytes =>     48 weight units
+    // 2438 inputs: 2438*41 = 99958 bytes => 399832 weight units
+    //    1 output:              30 bytes =>    120 weight units
+    //                      ======================================
+    //                                total: 400000 weight units
     BOOST_CHECK_EQUAL(GetTransactionWeight(CTransaction(t)), 400000);
     CheckIsStandard(t);
 
-    // increase output size by one byte, so we end up with 400004 vbytes
+    // increase output size by one byte, so we end up with 400004 weight units
     t.vout[0].scriptPubKey = CScript() << OP_RETURN << std::vector<unsigned char>(20, 0); // output size: 31 bytes
     BOOST_CHECK_EQUAL(GetTransactionWeight(CTransaction(t)), 400004);
     CheckIsNotStandard(t, "tx-size");

@@ -42,6 +42,10 @@
 #include <event2/thread.h>
 #include <event2/util.h>
 
+using util::ReplaceAll;
+using util::SplitString;
+using util::ToString;
+
 /** Default control ip and port */
 const std::string DEFAULT_TOR_CONTROL = "127.0.0.1:" + ToString(DEFAULT_TOR_CONTROL_PORT);
 /** Tor cookie size (from control-spec.txt) */
@@ -433,7 +437,7 @@ void TorController::add_onion_cb(TorControlConnection& _conn, const TorControlRe
             return;
         }
         service = LookupNumeric(std::string(service_id+".onion"), Params().GetDefaultPort());
-        LogPrintfCategory(BCLog::TOR, "Got service ID %s, advertising service %s\n", service_id, service.ToStringAddrPort());
+        LogInfo("Got tor service ID %s, advertising service %s\n", service_id, service.ToStringAddrPort());
         if (WriteBinaryFile(GetPrivateKeyFile(), private_key)) {
             LogPrint(BCLog::TOR, "Cached service private key to %s\n", fs::PathToString(GetPrivateKeyFile()));
         } else {

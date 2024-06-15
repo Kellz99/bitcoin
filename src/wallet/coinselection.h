@@ -142,8 +142,8 @@ struct CoinSelectionParams {
     size_t change_output_size = 0;
     /** Size of the input to spend a change output in virtual bytes. */
     size_t change_spend_size = 0;
-    /** Mininmum change to target in Knapsack solver: select coins to cover the payment and
-     * at least this value of change. */
+    /** Mininmum change to target in Knapsack solver and CoinGrinder:
+     * select coins to cover the payment and at least this value of change. */
     CAmount m_min_change_target{0};
     /** Minimum amount for creating a change output.
      * If change budget is smaller than min_change then we forgo creation of change output.
@@ -311,7 +311,8 @@ enum class SelectionAlgorithm : uint8_t
     BNB = 0,
     KNAPSACK = 1,
     SRD = 2,
-    MANUAL = 3,
+    CG = 3,
+    MANUAL = 4,
 };
 
 std::string GetAlgorithmName(const SelectionAlgorithm algo);
@@ -329,6 +330,10 @@ private:
     bool m_use_effective{false};
     /** The computed waste */
     std::optional<CAmount> m_waste;
+    /** False if algorithm was cut short by hitting limit of attempts and solution is non-optimal */
+    bool m_algo_completed{true};
+    /** The count of selections that were evaluated by this coin selection attempt */
+    size_t m_selections_evaluated;
     /** Total weight of the selected inputs */
     int m_weight{0};
     /** How much individual inputs overestimated the bump fees for the shared ancestry */
@@ -344,22 +349,6 @@ private:
             throw std::runtime_error(STR_INTERNAL_BUG("Shared UTXOs among selection results"));
         }
     }
-
-    /** Compute the waste for this result given the cost of change
-     * and the opportunity cost of spending these inputs now vs in the future.
-     * If change exists, waste = change_cost + inputs * (effective_feerate - long_term_feerate)
-     * If no change, waste = excess + inputs * (effective_feerate - long_term_feerate)
-     * where excess = selected_effective_value - target
-     * change_cost = effective_feerate * change_output_size + long_term_feerate * change_spend_size
-     *
-     * @param[in] change_cost The cost of creating change and spending it in the future.
-     *                        Only used if there is change, in which case it must be positive.
-     *                        Must be 0 if there is no change.
-     * @param[in] target The amount targeted by the coin selection algorithm.
-     * @param[in] use_effective_value Whether to use the input's effective value (when true) or the real value (when false).
-     * @return The waste
-     */
-    [[nodiscard]] CAmount GetSelectionWaste(CAmount change_cost, CAmount target, bool use_effective_value = true);
 
 public:
     explicit SelectionResult(const CAmount target, SelectionAlgorithm algo)
@@ -382,9 +371,32 @@ public:
     /** How much individual inputs overestimated the bump fees for shared ancestries */
     void SetBumpFeeDiscount(const CAmount discount);
 
-    /** Calculates and stores the waste for this selection via GetSelectionWaste */
-    void ComputeAndSetWaste(const CAmount min_viable_change, const CAmount change_cost, const CAmount change_fee);
+    /** Calculates and stores the waste for this result given the cost of change
+     * and the opportunity cost of spending these inputs now vs in the future.
+     * If change exists, waste = change_cost + inputs * (effective_feerate - long_term_feerate) - bump_fee_group_discount
+     * If no change, waste = excess + inputs * (effective_feerate - long_term_feerate) - bump_fee_group_discount
+     * where excess = selected_effective_value - target
+     * change_cost = effective_feerate * change_output_size + long_term_feerate * change_spend_size
+     *
+     * @param[in] min_viable_change The minimum amount necessary to make a change output economic
+     * @param[in] change_cost       The cost of creating a change output and spending it in the future. Only
+     *                              used if there is change, in which case it must be non-negative.
+     * @param[in] change_fee        The fee for creating a change output
+     */
+    void RecalculateWaste(const CAmount min_viable_change, const CAmount change_cost, const CAmount change_fee);
     [[nodiscard]] CAmount GetWaste() const;
+
+    /** Tracks that algorithm was able to exhaustively search the entire combination space before hitting limit of tries */
+    void SetAlgoCompleted(bool algo_completed);
+
+    /** Get m_algo_completed */
+    bool GetAlgoCompleted() const;
+
+    /** Record the number of selections that were evaluated */
+    void SetSelectionsEvaluated(size_t attempts);
+
+    /** Get selections_evaluated */
+    size_t GetSelectionsEvaluated() const ;
 
     /**
      * Combines the @param[in] other selection result into 'this' selection result.
@@ -429,6 +441,8 @@ public:
 
 util::Result<SelectionResult> SelectCoinsBnB(std::vector<OutputGroup>& utxo_pool, const CAmount& selection_target, const CAmount& cost_of_change,
                                              int max_weight);
+
+util::Result<SelectionResult> CoinGrinder(std::vector<OutputGroup>& utxo_pool, const CAmount& selection_target, CAmount change_target, int max_weight);
 
 /** Select coins by Single Random Draw. OutputGroups are selected randomly from the eligible
  * outputs until the target is satisfied
