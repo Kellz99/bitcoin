@@ -118,6 +118,7 @@ BITCOIN_TESTS =\
   test/net_peer_eviction_tests.cpp \
   test/net_tests.cpp \
   test/netbase_tests.cpp \
+  test/node_warnings_tests.cpp \
   test/orphanage_tests.cpp \
   test/peerman_tests.cpp \
   test/pmt_tests.cpp \
@@ -172,8 +173,7 @@ BITCOIN_TESTS =\
   test/validation_flush_tests.cpp \
   test/validation_tests.cpp \
   test/validationinterface_tests.cpp \
-  test/versionbits_tests.cpp \
-  test/xoroshiro128plusplus_tests.cpp
+  test/versionbits_tests.cpp
 
 if ENABLE_WALLET
 BITCOIN_TESTS += \
